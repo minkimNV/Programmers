@@ -121,58 +121,180 @@ ORDER BY region, rn
 
 ---
 
-## 🟠 문제 10. 일일 총 판매량이 3일 연속 증가한 날짜 구하기
+## 🟠 문제 10. 일일 총 배송량이 3일 연속 증가한 마지막 날짜를 구하세요
 
-**설명:**
-날짜별 전체 총 배송량(`SUM` of 모든 상품군)이 **3일 연속으로 증가한 경우의 마지막 날짜**를 출력하세요.
+### 문제를 푸는 방법
 
-**핵심 개념:**
-
-* `SUM(...) OVER (PARTITION BY DATE)` 또는 `GROUP BY DATE`
-* `LAG()` 함수로 이전 1, 2일치와 비교
-* 증가 여부 체크 후 패턴 감지
-
----
-
-## 🔵 문제 11. 지역별로 월별 평균 배송량과 편차(Standard Deviation)를 구하세요.
-
-**설명:**
-
-* 월 단위로 묶어 `AVG()`와 `STDDEV()`를 구하세요.
-* `strftime('%Y-%m', date)` 또는 `substr(date, 1, 7)`으로 월 추출
-
-**핵심 개념:**
-
-* 월별 분석, 파생 컬럼
-* `GROUP BY REGION, MONTH` 구조
+1. 먼저 **날짜별로 총 배송량**을 구합니다.  
+   이 때는 다섯 개 상품군의 배송 수량을 `SUM()`해서 `total_units`로 만듭니다.  
+2. 윈도우 함수 `LAG()`를 활용해 **이전 날짜들의 배송량**을 각각 가져옵니다.  
+   즉, `LAG(total_units, 1)`, `LAG(..., 2)`, `LAG(..., 3)` 을 써서 현재 날짜 기준 1\~3일 전 값을 가져옵니다.  
+3. 그 다음 `CASE WHEN`으로 세 날짜가 모두 이전보다 큰 경우만 필터링합니다.  
+4. 그 결과에서 `ORDER BY DATE DESC LIMIT 1`로 마지막 날짜를 선택합니다.  
 
 ---
 
-## 🟣 문제 12. 특정 상품군의 월별 이동 평균 구하기 (예: food)
+### 답변:
 
-**설명:**
-각 지역에서 `food_units`의 월별 평균과 \*\*이동 평균 (최근 3개월)\*\*을 함께 출력하세요.
+```sql
+WITH CLEANED AS (
+	SELECT
+	*,
+	MAX(CLEANED_DATE) OVER (ORDER BY ROW_ID ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS FILLED_DATE
+	FROM (
+		SELECT
+		*,
+		NULLIF(DATE, '-') AS CLEANED_DATE,
+		ROW_NUMBER() OVER () AS ROW_ID
+		FROM data4
+		)
+)
 
-**핵심 개념:**
+, TOTAL_SUM AS (
+	SELECT
+	FILLED_DATE AS DATE,
+	SUM(beverages_units+food_units+electronics_units+clothes_units+tools_units) AS TOTAL
+	FROM CLEANED
+	GROUP BY FILLED_DATE
+)
 
-* `AVG(food_units) OVER (PARTITION BY REGION ORDER BY MONTH ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)`
-* 분석용 시계열 패턴 문제
+, LAGGED AS (
+	SELECT
+	DATE,
+	TOTAL,
+	LAG(TOTAL, 3) OVER (ORDER BY DATE) AS THREE,
+	LAG(TOTAL, 2) OVER (ORDER BY DATE) AS TWO,
+	LAG(TOTAL, 1) OVER (ORDER BY DATE) AS ONE
+	FROM TOTAL_SUM
+)
+
+SELECT * FROM LAGGED
+WHERE THREE < TWO AND TWO < ONE AND ONE < TOTAL
+ORDER BY DATE DESC
+LIMIT 1
+```
+
+### 풀이  
+
+1. **`CLEANED` CTE**:
+   누락된 날짜를 이전 행의 날짜 값으로 채웁니다.
+   원래의 순서를 유지하기 위해 ROW_NUMBER()를 사용했습니다.
+2. **`TOTAL_SUM` CTE**:
+   `CLEANED` 테이블에서 추출한 날짜(FILLED_DATE)별로 다섯 상품군의 총 배송량을 계산합니다.
+3. **`LAGGED` CTE**:
+   현재 날짜를 기준으로 이전 1일, 2일, 3일의 배송량을 `LAG()` 함수를 통해 가져옵니다.
+   이렇게 하면 각 날짜에서 3일 연속 증가했는지를 비교할 수 있게 됩니다
+4. **최종 선택**:
+   3일 연속 증가 조건 (`3일 전 < 2일 전 < 1일 전 < 현재`)을 만족하는 행만 필터링하여, 조건을 만족하는 날짜 중 가장 마지막 날짜(`ORDER BY FILLED_DATE DESC LIMIT 1`)만 출력합니다.
 
 ---
 
-## 🔶 문제 13. 전체 배송량 기준 상위 25% 지역 구하기 (쿼타일)
+**풀이 요약:**
 
-**설명:**
-모든 지역의 총 배송량 합계를 기준으로, 상위 25%에 해당하는 지역들을 구하세요.
-
-**핵심 개념:**
-
-* `NTILE(4) OVER (ORDER BY TOTAL DESC)` 활용
-* 사분위수 분석 / 상위 분류 패턴
+* 날짜별 총 배송량 집계 (`GROUP BY + SUM`)
+* `LAG()`로 3일 전까지의 값 추적
+* 세 값 연속 증가 조건 필터링
+* 가장 마지막 날짜만 `LIMIT 1`
 
 ---
 
-## 🔸 문제 14. 매일 가장 많이 팔린 상품군은 무엇인가요?
+**이 외 가능한 확장 쿼리 (모든 연속 증가 날짜 출력):**
+
+```sql
+SELECT * FROM LAGGED
+WHERE THREE < TWO AND TWO < ONE AND ONE < TOTAL
+ORDER BY DATE
+```
+
+**설명:**
+조건을 만족하는 날짜들을 모두 출력하면, **연속 상승 시점 전체를 분석할 수 있습니다.**
+
+---
+
+## 🔶 문제 11. 전체 배송량 기준 상위 25% 지역 구하기 (쿼타일)
+
+### 문제를 푸는 방법
+
+1. `GROUP BY REGION`을 사용해 각 지역별로 전체 배송량을 합산합니다.
+   다섯 개 상품군을 모두 더해 `total_units`로 계산합니다.
+2. 윈도우 함수 `NTILE(4) OVER (ORDER BY total_units DESC)`를 사용해
+   **배송량 기준 상위 → 하위 순으로 4개의 그룹(사분위수)** 로 나눕니다.
+3. `tile = 1`인 지역들만 필터링하면, \*\*상위 25%\*\*에 해당하는 지역만 남습니다.
+
+> 📌 `NTILE(4)`은 레코드 수를 균등하게 4등분하므로, 정렬 순서를 기준으로 각 그룹을 나눌 수 있습니다.
+
+---
+
+### 답변:
+
+```sql
+WITH CLEANED AS (
+	SELECT
+	*,
+	MAX(CLEANED_DATE) OVER (ORDER BY ROW_ID ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS FILLED_DATE
+	FROM (
+		SELECT
+		*,
+		NULLIF(DATE, '-') AS CLEANED_DATE,
+		row_number() OVER () AS ROW_ID
+		FROM data4
+		)
+)
+
+, REGION_TOTAL AS (
+	SELECT
+	REGION,
+	SUM(beverages_units + food_units + electronics_units + clothes_units + tools_units) AS TOTAL_UNITS
+	FROM CLEANED
+	GROUP BY REGION
+)
+
+, RANKED AS (
+	SELECT
+	*,
+	NTILE(4) OVER (ORDER BY TOTAL_UNITS DESC) AS TILE
+	FROM REGION_TOTAL
+)
+
+SELECT
+REGION,
+TOTAL_UNITS
+FROM RANKED
+WHERE TILE = 1
+```
+
+### 풀이
+
+1. **REGION_TOTALS**:
+   각 지역별로 배송량을 합산하여 `TOTAL_UNITS`를 구합니다.
+   이는 다섯 상품군을 모두 더한 값입니다.
+2. **RANKED**:
+   `NTILE(4)` 윈도우 함수를 사용해 총합이 높은 순서(`ORDER BY TOTAL_UNITS DESC`)로 사분위 구간을 나눕니다.
+   여기서 `TILE = 1`인 그룹이 **상위 25%에 해당하는 지역**입니다.
+3. **최종 출력**:
+   상위 25% 지역들의 이름과 총 배송량을 내림차순 정렬로 출력합니다.
+
+**풀이 요약:**
+
+* `GROUP BY REGION`으로 지역별 총합 계산
+* `NTILE(4)`로 사분위수 구간 나누기
+* `TILE = 1`로 상위 25% 지역 필터링
+
+**이 외 가능한 확장 쿼리 (모든 사분위별 그룹 보기):**
+
+```sql
+SELECT REGION, TOTAL_UNITS, TILE
+FROM RANKED
+ORDER BY TILE, TOTAL_UNITS DESC
+```
+
+**설명:**
+모든 지역을 사분위 그룹별로 정렬해서 보고 싶을 경우 유용합니다.
+보고서나 분석 자료 작성 시 각 구간별 특성 파악에 자주 쓰입니다.
+
+---
+
+## 🔸 문제 12. 매일 가장 많이 팔린 상품군은 무엇인가요?
 
 **설명:**
 각 날짜마다 **가장 많이 팔린 상품군** 이름과 그 수량을 구하세요.
@@ -184,7 +306,7 @@ ORDER BY region, rn
 
 ---
 
-## 🧩 문제 15. 누적 판매량이 1000단위 돌파한 날짜 구하기 (상품군별 또는 전체 기준)
+## 🧩 문제 13. 누적 판매량이 1000단위 돌파한 날짜 구하기 (상품군별 또는 전체 기준)
 
 **설명:**
 상품군별로 누적 판매량을 계산하고, **1000단위 돌파 시점의 날짜**를 구하세요.

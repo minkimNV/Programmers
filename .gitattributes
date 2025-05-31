@@ -8,4 +8,5 @@
 *.csv linguist-detectable=false
 
 # SQL 파일은 명확히 SQL로 인식되도록 설정
+*.sql linguist-detectable=true
 *.sql linguist-language=SQL

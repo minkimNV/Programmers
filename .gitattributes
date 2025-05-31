@@ -1,3 +1,11 @@
-*.sql linguist-language=SQL
+# .ipynb 파일을 Python 코드로 인식시키기 위한 설정
+*.ipynb linguist-language=Python
+
+# 마크다운 문서는 통계에 포함하지 않도록 설정
 *.md linguist-detectable=false
+*.md linguist-documentation
+
 *.csv linguist-detectable=false
+
+# SQL 파일은 명확히 SQL로 인식되도록 설정
+*.sql linguist-language=SQL

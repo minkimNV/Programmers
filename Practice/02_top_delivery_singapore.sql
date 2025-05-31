@@ -1,0 +1,24 @@
+--02_top_delivery_singapore
+
+WITH CLEANED AS (
+  SELECT
+    *,
+    MAX(CLEANED_DATE) OVER (ORDER BY ROW_ID ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS FILLED_DATE
+  FROM (
+    SELECT
+      *,
+      NULLIF(DATE, '-') AS CLEANED_DATE,
+      ROW_NUMBER() OVER () AS ROW_ID
+    FROM TEST
+  )
+)
+
+SELECT
+  FILLED_DATE AS DATE,
+  REGION,
+  SUM(beverages_units + food_units + electronics_units + clothes_units + tools_units) AS TOTAL_UNITS
+FROM CLEANED
+WHERE REGION = 'SIN51'
+GROUP BY FILLED_DATE, REGION
+ORDER BY TOTAL_UNITS DESC 
+LIMIT 1
